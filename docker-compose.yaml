@@ -1,0 +1,21 @@
+
+services:
+  postgres:
+    image: postgres
+    container_name: postgres-rc
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: db_reddit
+    ports:
+      - "5432:5432"
+    volumes:
+      - "./db_starage:/var/lib/postgresql/data:rw"
+  
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=root
+    ports:
+      - "8181:80"
