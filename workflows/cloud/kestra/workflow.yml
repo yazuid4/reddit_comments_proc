@@ -1,0 +1,76 @@
+id: reddit_data_proc_gcp
+namespace: reddit
+
+inputs:
+  - id: input_dir
+    displayName: Enter the input folder
+    type: STRING
+    defaults: 'raw'
+
+  - id: output_dir
+    displayName: Enter the output folder
+    type: STRING
+    defaults: 'results'
+
+  - id: year
+    displayName: Select the year
+    values: ['2006', '2007', '2008', '2009']
+    type: SELECT
+    defaults: '2006'
+  
+  - id: month
+    displayName: Select the month
+    values: ['01', '02', '03', '04', '05']
+    type: SELECT
+    defaults: '01'
+  
+variables:
+  file_name: "RC_{{inputs.year}}-{{inputs.month}}"
+  file_url: "gs://{{kv('GCP_BUCKET')}}/{{inputs.input_dir}}/{{vars.file_name}}.zst"
+  file_decompressed: "decompressed_{{inputs.year}}-{{inputs.month}}.json"
+
+tasks:
+  - id: init
+    type: io.kestra.plugin.core.log.Log
+    message: start processing...
+
+  - id: decompress_zst_api
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ kv('SERVICE_URL') }}/decompress"
+    method: POST
+    headers:
+      # Authorization header: Bearer token
+      Authorization: "Bearer {{ kv('GCLOUD_IDENTITY_TOKEN') }}"
+      Content-Type: "application/json"
+    body: |
+      {
+          "bucket_name": "{{ kv('GCP_BUCKET') }}",
+          "input_file": "RC_{{ inputs.year }}-{{ inputs.month }}.zst",
+          "output_file": "{{ render(vars.file_decompressed) }}"
+      }
+
+  - id: ETL_spark_parquet
+    type: io.kestra.plugin.gcp.dataproc.batches.PySparkSubmit
+    peripherals:
+      sparkHistoryServer:
+        dataprocCluster: "cluster-t"
+    mainPythonFileUri: "gs://{{ kv('GCP_BUCKET') }}/scripts/pyspark_transform.py"
+    name: "ETL-parquet"
+    region: "us-east4"
+    args:
+      - "--bucket_name={{kv('GCP_BUCKET')}}"
+      - "--input_file={{ render(vars.file_decompressed) }}"
+      - "--output_dir={{ inputs.output_dir }}"
+
+  - id: purge_files
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+    description: Remove output files. (empty Kestra outputs).
+
+
+pluginDefaults:
+  - type: io.kestra.plugin.gcp
+    values: 
+      serviceAccount: "{{kv('GCP_CREDS')}}" 
+      projectId: "{{kv('GCP_PROJECT_ID')}}"
+      location: "{{kv('GCP_LOCATION')}}"
+      bucket: "{{kv('GCP_BUCKET')}}"
